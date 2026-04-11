@@ -371,9 +371,9 @@ function cacheSettings() {
 async function syncSettings() {
   cacheSettings();
   try {
-    await fetch(GAS_URL, {
+    fetch(GAS_URL, {
       method: 'POST',
-      mode: 'cors',
+      mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ action: 'saveSettings', cats, pays })
     });
@@ -616,23 +616,24 @@ async function submitExpense() {
   setLoading(true);
   const payload = { date, amount:parseInt(amount,10), category:selCat, payment:selPay, memo, receiptBase64:fileBase64||'', receiptMimeType:fileMime||'' };
   try {
-    const res = await fetch(GAS_URL, {
+    // no-corsで送信（GASのCORS制限を回避）
+    fetch(GAS_URL, {
       method: 'POST',
-      mode: 'cors',
+      mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload)
     });
-    const result = await res.json();
+    // ローカルに即時保存
     const entry = {
       id: Date.now(), date, amount: payload.amount,
       category: selCat, payment: selPay, memo,
       receiptDataUrl: fileBase64 ? document.getElementById('preview-img').src : '',
-      receiptUrl: (result && result.receiptUrl) ? result.receiptUrl : '',
+      receiptUrl: '',
       createdAt: new Date().toISOString()
     };
     expenses.unshift(entry);
     localStorage.setItem('expenses', JSON.stringify(expenses));
-    showToast('✅ 登録・スプレッドシート転記完了');
+    showToast('✅ 登録しました（スプレッドシートに反映中）');
     resetForm();
   } catch(err) {
     showToast('❌ エラー: '+err.message,'error');
