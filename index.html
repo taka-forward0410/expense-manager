@@ -465,7 +465,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab').forEach((el,i) => el.classList.toggle('active', names[i]===name));
   document.querySelectorAll('.panel').forEach(el => el.classList.remove('active'));
   document.getElementById('panel-'+name).classList.add('active');
-  if (name==='list') renderList(expenses);
+  if (name==='list') loadExpenses();
 }
 
 function renderChoiceGrid(type) {
@@ -679,6 +679,34 @@ function clearFilter() {
   document.getElementById('f-cat').value='';
   document.getElementById('f-pay').value='';
   renderList(expenses);
+}
+
+async function loadExpenses() {
+  // まずローカルキャッシュで即時表示
+  renderList(expenses);
+  // スプレッドシートから最新データを取得
+  try {
+    const res = await fetch(GAS_URL + '?action=getExpenses');
+    const data = await res.json();
+    if (Array.isArray(data) && data.length > 0) {
+      // スプレッドシートのデータをローカルに反映
+      expenses = data.map(e => ({
+        id: e.createdAt + '_' + e.amount,
+        date: e.date,
+        amount: e.amount,
+        category: e.category,
+        payment: e.payment,
+        memo: e.memo,
+        receiptUrl: e.receiptUrl,
+        receiptDataUrl: '',
+        createdAt: e.createdAt
+      }));
+      localStorage.setItem('expenses', JSON.stringify(expenses));
+      renderList(expenses);
+    }
+  } catch(e) {
+    console.warn('データ取得失敗（ローカルキャッシュを使用）:', e);
+  }
 }
 
 function renderList(list) {
