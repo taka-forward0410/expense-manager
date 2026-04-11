@@ -368,6 +368,37 @@ function cacheSettings() {
   localStorage.setItem('pays', JSON.stringify(pays));
 }
 
+async function syncSettings() {
+  cacheSettings();
+  try {
+    await fetch(GAS_URL, {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'saveSettings', cats, pays })
+    });
+  } catch(e) {
+    console.warn('設定同期失敗:', e);
+  }
+}
+
+async function loadSettings() {
+  try {
+    const res = await fetch(GAS_URL + '?action=getSettings');
+    const data = await res.json();
+    if (data.cats && data.cats.length) cats = data.cats;
+    if (data.pays && data.pays.length) pays = data.pays;
+    cacheSettings();
+    renderChoiceGrid('cat');
+    renderChoiceGrid('pay');
+    renderManageList('cat');
+    renderManageList('pay');
+    renderFilterSelects();
+  } catch(e) {
+    console.warn('設定取得失敗（ローカルキャッシュを使用）:', e);
+  }
+}
+
 // PC/SP切り替え
 function setView(mode) {
   document.body.classList.remove('pc','sp');
@@ -414,6 +445,9 @@ renderManageList('cat');
 renderManageList('pay');
 renderFilterSelects();
 renderList(expenses);
+
+// GASから最新設定を取得
+loadSettings();
 
 function todayStr() { return new Date().toISOString().split('T')[0]; }
 function fmtYen(n)  { return '¥' + Math.round(n).toLocaleString('ja-JP'); }
@@ -491,7 +525,7 @@ function addItem(type) {
   const list = type==='cat' ? cats : pays;
   if (list.includes(val)) return showToast('同じ名前がすでにあります','error');
   list.push(val);
-  cacheSettings();
+  syncSettings();
   input.value = '';
   renderChoiceGrid(type); renderManageList(type); renderFilterSelects();
   showToast('✅ 追加しました：'+val);
@@ -524,7 +558,7 @@ function confirmEdit(type, idx) {
   if (list.some((v,i) => v===newVal && i!==idx)) return showToast('同じ名前がすでにあります','error');
   const oldVal = list[idx];
   list[idx] = newVal;
-  cacheSettings();
+  syncSettings();
   if (type==='cat' && selCat===oldVal) selCat=newVal;
   if (type==='pay' && selPay===oldVal) selPay=newVal;
   renderChoiceGrid(type); renderManageList(type); renderFilterSelects();
@@ -538,7 +572,7 @@ function deleteItem(type, idx) {
   const val = list[idx];
   if (!confirm(`「${val}」を削除しますか？`)) return;
   list.splice(idx, 1);
-  cacheSettings();
+  syncSettings();
   if (type==='cat' && selCat===val) selCat='';
   if (type==='pay' && selPay===val) selPay='';
   renderChoiceGrid(type); renderManageList(type); renderFilterSelects();
@@ -582,13 +616,23 @@ async function submitExpense() {
   setLoading(true);
   const payload = { date, amount:parseInt(amount,10), category:selCat, payment:selPay, memo, receiptBase64:fileBase64||'', receiptMimeType:fileMime||'' };
   try {
-    await fetch(GAS_URL, { method:'POST', mode:'no-cors', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
-    const entry = { id:Date.now(), date, amount:payload.amount, category:selCat, payment:selPay, memo,
+    const res = await fetch(GAS_URL, {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(payload)
+    });
+    const result = await res.json();
+    const entry = {
+      id: Date.now(), date, amount: payload.amount,
+      category: selCat, payment: selPay, memo,
       receiptDataUrl: fileBase64 ? document.getElementById('preview-img').src : '',
-      receiptUrl:'', createdAt:new Date().toISOString() };
+      receiptUrl: (result && result.receiptUrl) ? result.receiptUrl : '',
+      createdAt: new Date().toISOString()
+    };
     expenses.unshift(entry);
     localStorage.setItem('expenses', JSON.stringify(expenses));
-    showToast('✅ 登録完了');
+    showToast('✅ 登録・スプレッドシート転記完了');
     resetForm();
   } catch(err) {
     showToast('❌ エラー: '+err.message,'error');
