@@ -380,6 +380,24 @@
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbz1hkniL13O5K_L1akJbzxY1-Qq5JHN1r0sbv9edC8ecdvGpurwbp04DMCpdgw7Ivu0/exec';
 
 let expenses = JSON.parse(localStorage.getItem('expenses') || '[]');
+const CACHE_TTL = 5 * 60 * 1000; // 5分（ミリ秒）
+
+function isCacheValid() {
+  const ts = localStorage.getItem('expenses_ts');
+  if (!ts) return false;
+  return (Date.now() - parseInt(ts)) < CACHE_TTL;
+}
+
+function saveCache(data) {
+  localStorage.setItem('expenses', JSON.stringify(data));
+  localStorage.setItem('expenses_ts', Date.now().toString());
+}
+
+function clearCache() {
+  localStorage.removeItem('expenses');
+  localStorage.removeItem('expenses_ts');
+  expenses = [];
+}
 let selCat = '', selPay = '', fileBase64 = '', fileMime = '';
 
 const FACTORY_CATS = ['家族支出','個人支出','食費','交通費','光熱費','その他'];
@@ -395,21 +413,35 @@ function cacheSettings() {
 async function syncSettings() {
   cacheSettings();
   try {
-    fetch(GAS_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'saveSettings', cats, pays })
-    });
+    await gasPostWithResponse('saveSettings', { cats, pays });
   } catch(e) {
     console.warn('設定同期失敗:', e);
   }
 }
 
+async function gasPost(action, payload) {
+  const res = await fetch(GAS_URL, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ action, ...payload })
+  });
+  return res;
+}
+
+async function gasPostWithResponse(action, payload) {
+  const res = await fetch(GAS_URL, {
+    method: 'POST',
+    mode: 'cors',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ action, ...payload })
+  });
+  return res.json();
+}
+
 async function loadSettings() {
   try {
-    const res = await fetch(GAS_URL + '?action=getSettings');
-    const data = await res.json();
+    const data = await gasPostWithResponse('getSettings', {});
     if (data.cats && data.cats.length) cats = data.cats;
     if (data.pays && data.pays.length) pays = data.pays;
     cacheSettings();
@@ -641,7 +673,9 @@ async function submitExpense() {
     };
     expenses.unshift(entry);
     localStorage.setItem('expenses', JSON.stringify(expenses));
-    showToast('✅ 登録しました（スプレッドシートに反映中）');
+    // 登録成功後キャッシュをクリアして最新データを取得
+    clearCache();
+    showToast('✅ 登録完了');
     resetForm();
   } catch(err) {
     showToast('❌ エラー: '+err.message,'error');
@@ -751,12 +785,12 @@ async function deleteSelected() {
 
   const ids = Array.from(selectedIds);
 
-  // ローカルから削除
+  // ローカルから削除してキャッシュクリア
   expenses = expenses.filter(e => {
     const eid = (e.createdAt||'')+'_'+(e.amount||0);
     return !ids.includes(eid);
   });
-  localStorage.setItem('expenses', JSON.stringify(expenses));
+  clearCache();
 
   // GASに削除リクエスト
   try {
@@ -786,6 +820,12 @@ function clearFilter() {
 }
 
 async function loadExpenses(manual) {
+  // キャッシュが有効かつ手動更新でない場合はキャッシュを使用
+  if (!manual && isCacheValid() && expenses.length > 0) {
+    renderList(expenses);
+    return;
+  }
+
   // まずローカルキャッシュで即時表示
   renderList(expenses);
 
@@ -793,12 +833,11 @@ async function loadExpenses(manual) {
   const btn  = document.getElementById('refresh-btn');
   const icon = document.getElementById('refresh-icon');
   if (btn)  btn.disabled = true;
-  if (icon) { icon.style.display='inline-block'; icon.style.animation='spin 0.7s linear infinite'; }
+  if (icon) { icon.style.animation='spin 0.7s linear infinite'; }
 
   try {
-    const res = await fetch(GAS_URL + '?action=getExpenses');
-    const data = await res.json();
-    if (Array.isArray(data) && data.length > 0) {
+    const data = await gasPostWithResponse('getExpenses', {});
+    if (Array.isArray(data)) {
       expenses = data.map(e => ({
         id: e.createdAt + '_' + e.amount,
         date: e.date,
@@ -810,10 +849,9 @@ async function loadExpenses(manual) {
         receiptDataUrl: '',
         createdAt: e.createdAt
       }));
-      localStorage.setItem('expenses', JSON.stringify(expenses));
+      saveCache(expenses);
       renderList(expenses);
     }
-    // 最終更新時刻を表示
     const now = new Date();
     const ts  = now.getHours() + ':' + String(now.getMinutes()).padStart(2,'0');
     const el  = document.getElementById('last-updated');
@@ -824,7 +862,6 @@ async function loadExpenses(manual) {
     if (manual) showToast('⚠️ 更新に失敗しました', 'error');
   }
 
-  // ボタンを元に戻す
   if (btn)  btn.disabled = false;
   if (icon) { icon.style.animation=''; }
 }
