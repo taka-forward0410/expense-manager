@@ -286,13 +286,27 @@
   <div id="panel-list" class="panel">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 1rem;border-bottom:1px solid var(--border);background:var(--surface);">
       <span style="font-size:12px;color:var(--text2);" id="last-updated">最終更新：－</span>
-      <button onclick="loadExpenses(true)" id="refresh-btn" style="
-        display:flex;align-items:center;gap:5px;
-        background:var(--surface2);border:1px solid var(--border);
-        border-radius:8px;padding:5px 12px;font-size:13px;font-weight:600;
-        color:var(--accent);cursor:pointer;font-family:inherit;">
-        <span id="refresh-icon">↻</span> 更新
-      </button>
+      <div style="display:flex;gap:8px;">
+        <button id="delete-mode-btn" onclick="toggleDeleteMode()">🗑️ 削除</button>
+        <button onclick="loadExpenses(true)" id="refresh-btn" style="
+          display:flex;align-items:center;gap:5px;
+          background:var(--surface2);border:1px solid var(--border);
+          border-radius:8px;padding:5px 12px;font-size:13px;font-weight:600;
+          color:var(--accent);cursor:pointer;font-family:inherit;">
+          <span id="refresh-icon">↻</span> 更新
+        </button>
+      </div>
+    </div>
+    <!-- 削除バー -->
+    <div class="delete-bar" id="delete-bar">
+      <div class="delete-bar-left">
+        <span class="delete-bar-count" id="delete-count">0件選択</span>
+        <button class="delete-bar-btn select-all" onclick="toggleSelectAll()">全選択</button>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="delete-bar-btn cancel" onclick="toggleDeleteMode()">キャンセル</button>
+        <button class="delete-bar-btn danger" onclick="deleteSelected()">削除</button>
+      </div>
     </div>
     <div class="summary-grid">
       <div class="metric"><div class="metric-label">今月合計</div><div class="metric-value" id="sum-total">¥0</div></div>
@@ -441,23 +455,7 @@ function bindSpFields() {
   if (spAmt)  spAmt.addEventListener('input',  () => { document.getElementById('amount').value   = spAmt.value; });
 }
 
-// 初期化
-const savedView = localStorage.getItem('viewMode') || 'sp';
-setView(savedView);
-bindSpFields();
-document.getElementById('pay-date').value = todayStr();
-const spDateEl = document.getElementById('pay-date-sp');
-if (spDateEl) spDateEl.value = todayStr();
-document.getElementById('current-url').textContent = window.location.href;
-renderChoiceGrid('cat');
-renderChoiceGrid('pay');
-renderManageList('cat');
-renderManageList('pay');
-renderFilterSelects();
-renderList(expenses);
 
-// GASから最新設定を取得
-loadSettings();
 
 function todayStr() { return new Date().toISOString().split('T')[0]; }
 function fmtYen(n)  { return '¥' + Math.round(n).toLocaleString('ja-JP'); }
@@ -684,6 +682,102 @@ function applyFilter() {
   renderList(r);
 }
 
+// ============================================================
+// 削除モード
+// ============================================================
+let deleteMode = false;
+let selectedIds = new Set();
+
+function toggleDeleteMode() {
+  deleteMode = !deleteMode;
+  selectedIds.clear();
+  document.getElementById('delete-bar').classList.toggle('show', deleteMode);
+  document.querySelectorAll('.expense-item').forEach(el => {
+    el.classList.toggle('select-mode', deleteMode);
+    el.classList.remove('selected');
+  });
+  document.querySelectorAll('.expense-check').forEach(el => el.classList.remove('checked'));
+  updateDeleteCount();
+}
+
+function toggleItemSelect(id) {
+  if (!deleteMode) return;
+  const item  = document.getElementById('ei-' + id);
+  const check = document.getElementById('ec-' + id);
+  if (!item || !check) return;
+  if (selectedIds.has(id)) {
+    selectedIds.delete(id);
+    item.classList.remove('selected');
+    check.classList.remove('checked');
+  } else {
+    selectedIds.add(id);
+    item.classList.add('selected');
+    check.classList.add('checked');
+  }
+  updateDeleteCount();
+}
+
+function toggleSelectAll() {
+  const items = document.querySelectorAll('.expense-item');
+  const allSelected = selectedIds.size === items.length;
+  selectedIds.clear();
+  items.forEach(el => {
+    el.classList.remove('selected');
+    const check = el.querySelector('.expense-check');
+    if (check) check.classList.remove('checked');
+  });
+  if (!allSelected) {
+    items.forEach(el => {
+      const id = el.id.replace('ei-', '');
+      selectedIds.add(id);
+      el.classList.add('selected');
+      const check = el.querySelector('.expense-check');
+      if (check) check.classList.add('checked');
+    });
+  }
+  updateDeleteCount();
+}
+
+function updateDeleteCount() {
+  const el = document.getElementById('delete-count');
+  if (el) el.textContent = selectedIds.size + '件選択';
+  const btn = document.querySelector('.delete-bar-btn.danger');
+  if (btn) btn.disabled = selectedIds.size === 0;
+}
+
+async function deleteSelected() {
+  if (selectedIds.size === 0) return showToast('削除する項目を選択してください', 'error');
+  if (!confirm(selectedIds.size + '件を削除しますか？\nレシート画像も削除されます。')) return;
+
+  const ids = Array.from(selectedIds);
+
+  // ローカルから削除
+  expenses = expenses.filter(e => {
+    const eid = (e.createdAt||'')+'_'+(e.amount||0);
+    return !ids.includes(eid);
+  });
+  localStorage.setItem('expenses', JSON.stringify(expenses));
+
+  // GASに削除リクエスト
+  try {
+    fetch(GAS_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'deleteExpenses', ids })
+    });
+    showToast('🗑️ ' + ids.length + '件を削除しました');
+  } catch(e) {
+    showToast('⚠️ 削除に失敗しました', 'error');
+  }
+
+  // 削除モードを解除して再描画
+  deleteMode = false;
+  selectedIds.clear();
+  document.getElementById('delete-bar').classList.remove('show');
+  renderList(expenses);
+}
+
 function clearFilter() {
   ['f-from','f-to'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('f-cat').value='';
@@ -744,7 +838,9 @@ function renderList(list) {
     const thumb=e.receiptDataUrl
       ?`<img src="${e.receiptDataUrl}" class="receipt-thumb" onclick="openModal('${e.receiptDataUrl}')" alt="レシート">`
       :(e.receiptUrl?`<img src="${e.receiptUrl}" class="receipt-thumb" onclick="openModal('${e.receiptUrl}')" alt="レシート">`:`<div class="receipt-icon">🧾</div>`);
-    return `<div class="expense-item">
+    const eid = (e.createdAt||'')+'_'+(e.amount||0);
+    return `<div class="expense-item" id="ei-${eid}" onclick="toggleItemSelect('${eid}')">
+      <div class="expense-check" id="ec-${eid}"></div>
       <div class="expense-left">
         <div class="expense-memo">${e.memo||'（メモなし）'}</div>
         <div class="expense-tags"><span class="tag tag-cat">${e.category}</span><span class="tag ${payClass}">${e.payment}</span></div>
@@ -782,6 +878,46 @@ function clearData(){
   if(!confirm('ローカルキャッシュをすべて削除しますか？\nスプレッドシートのデータは残ります。')) return;
   expenses=[];localStorage.removeItem('expenses');renderList([]);showToast('🗑️ キャッシュを削除しました');
 }
+
+// 初期化（全関数定義後に実行）
+
+// HTMLのonclick属性から呼べるようにwindowに登録
+window.setView = setView;
+window.switchTab = switchTab;
+window.submitExpense = submitExpense;
+window.handleFile = handleFile;
+window.toggleDeleteMode = toggleDeleteMode;
+window.loadExpenses = loadExpenses;
+window.toggleSelectAll = toggleSelectAll;
+window.deleteSelected = deleteSelected;
+window.applyFilter = applyFilter;
+window.clearFilter = clearFilter;
+window.copyUrl = copyUrl;
+window.addItem = addItem;
+window.openSheet = openSheet;
+window.exportCSV = exportCSV;
+window.clearData = clearData;
+window.selectChoice = selectChoice;
+window.startEdit = startEdit;
+window.confirmEdit = confirmEdit;
+window.cancelEdit = cancelEdit;
+window.openModal = openModal;
+window.toggleItemSelect = toggleItemSelect;
+window.deleteItem = deleteItem;
+
+// 初期化
+const savedView = localStorage.getItem('viewMode') || 'sp';
+  setView(savedView);
+  bindSpFields();
+  document.getElementById('pay-date').value = todayStr();
+  const spDateEl = document.getElementById('pay-date-sp');
+  if (spDateEl) spDateEl.value = todayStr();
+  document.getElementById('current-url').textContent = window.location.href;
+  renderChoiceGrid('cat');
+  renderChoiceGrid('pay');
+  renderManageList('cat');
+  renderManageList('pay');
+  renderFilterSelects();
+  renderList(expenses);
+  loadSettings();
 </script>
-</body>
-</html>
