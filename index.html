@@ -880,7 +880,9 @@ async function deleteSelected() {
   }
 
   selectedIds.clear();
-  renderList(expenses);
+  updateDeleteBtn();
+  // 削除後にスプレッドシートから最新データを自動取得
+  await loadExpenses(false);
   if (btn) { btn.textContent = '削除'; }
 }
 
