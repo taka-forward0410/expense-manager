@@ -696,18 +696,38 @@ document.getElementById('new-pay-input').addEventListener('keydown', e => { if (
 function handleFile(e) {
   const file = e.target.files[0];
   if (!file) return;
-  fileMime = file.type;
+  fileMime = 'image/jpeg'; // 圧縮後はJPEGに統一
+
   const reader = new FileReader();
   reader.onload = ev => {
-    const dataUrl = ev.target.result;
-    const img = document.getElementById('preview-img');
-    img.src = dataUrl; img.style.display = 'block';
-    fileBase64 = dataUrl.split(',')[1];
-    document.getElementById('upload-zone').classList.add('has-file');
-    document.getElementById('upload-label').textContent = '✓ '+file.name;
-    // 撮り直しボタンを表示
-    const retakeBtn = document.getElementById('retake-btn');
-    if (retakeBtn) retakeBtn.classList.add('show');
+    const original = new Image();
+    original.onload = () => {
+      // 最大1280pxにリサイズ・品質70%で圧縮
+      const MAX = 1280;
+      let w = original.width;
+      let h = original.height;
+      if (w > MAX || h > MAX) {
+        if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+        else        { w = Math.round(w * MAX / h); h = MAX; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(original, 0, 0, w, h);
+      const compressed = canvas.toDataURL('image/jpeg', 0.7);
+
+      const img = document.getElementById('preview-img');
+      img.src = compressed; img.style.display = 'block';
+      fileBase64 = compressed.split(',')[1];
+      document.getElementById('upload-zone').classList.add('has-file');
+
+      // 圧縮後サイズを表示
+      const kb = Math.round(fileBase64.length * 0.75 / 1024);
+      document.getElementById('upload-label').textContent = '✓ ' + file.name + ' (' + kb + 'KB)';
+      const retakeBtn = document.getElementById('retake-btn');
+      if (retakeBtn) retakeBtn.classList.add('show');
+    };
+    original.src = ev.target.result;
   };
   reader.readAsDataURL(file);
 }
