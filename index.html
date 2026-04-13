@@ -27,9 +27,7 @@
   .gs-badge.on{background:var(--accent-light);color:var(--accent-text);}
   .gs-badge.off{background:var(--amber-light);color:var(--amber);}
   .gs-badge::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;}
-  .view-switcher{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface2);}
-  .vsw-btn{padding:4px 12px;font-size:12px;font-weight:600;border:none;background:none;color:var(--text2);cursor:pointer;font-family:inherit;transition:background 0.15s,color 0.15s;}
-  .vsw-btn.active{background:var(--accent);color:#0d1a18;}
+
   .tabs{background:var(--surface);border-top:1px solid var(--border);border-bottom:none;
     position:fixed;bottom:0;left:0;right:0;z-index:100;
     padding-bottom:env(safe-area-inset-bottom);box-shadow:0 -2px 12px rgba(0,0,0,0.4);}
@@ -183,10 +181,7 @@
 <header class="app-header">
   <div class="header-inner">
     <div class="app-title"><span>SpendNote</span></div>
-    <div class="view-switcher">
-      <button id="btn-sp" class="vsw-btn active" onclick="setView('sp')">📱 SP</button>
-      <button id="btn-pc" class="vsw-btn" onclick="setView('pc')">🖥️ PC</button>
-    </div>
+
   </div>
 </header>
 
@@ -525,17 +520,7 @@ async function loadSettings() {
   }
 }
 
-// PC/SP切り替え
-function setView(mode) {
-  document.body.classList.remove('pc','sp');
-  document.body.classList.add(mode);
-  localStorage.setItem('viewMode', mode);
-  document.getElementById('btn-pc').classList.toggle('active', mode==='pc');
-  document.getElementById('btn-sp').classList.toggle('active', mode==='sp');
-  syncFormFields();
-  renderChoiceGrid('cat');
-  renderChoiceGrid('pay');
-}
+// SP固定モード（setView廃止）
 
 function syncFormFields() {
   const isSP = document.body.classList.contains('sp');
@@ -1290,7 +1275,6 @@ function renderCategoryChart() {
 }
 
 // HTMLのonclick属性から呼べるようにwindowに登録
-window.setView = setView;
 window.switchTab = switchTab;
 window.submitExpense = submitExpense;
 window.handleFile = handleFile;
@@ -1331,7 +1315,10 @@ const savedView = localStorage.getItem('viewMode') || 'sp';
   renderManageList('cat');
   renderManageList('pay');
   renderFilterSelects();
+  // まずlocalStorageで即時表示（空でも可）
   renderList(expenses);
+  // GASから最新データを取得（ホーム画面アプリ対応）
   loadSettings();
   loadBudgets();
+  loadExpenses(false);
 </script>
