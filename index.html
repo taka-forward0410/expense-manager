@@ -331,48 +331,26 @@
   <!-- 分析 -->
   <div id="panel-analysis" class="panel">
 
-    <!-- 決済方法フィルター -->
+    <!-- 予算管理（決済方法別一覧） -->
     <div class="card">
-      <div class="card-title">表示する決済方法</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;" id="analysis-pay-filter">
-        <button class="choice-btn active-pay" id="apf-all" onclick="setAnalysisPay('all')" style="flex:none;padding:7px 14px;font-size:13px;">すべて</button>
-      </div>
-    </div>
-
-    <!-- 予算管理 -->
-    <div class="card">
-      <div class="card-title" id="budget-title">月間予算</div>
-      <div id="budget-alert" style="display:none;padding:8px 12px;margin-bottom:10px;background:var(--danger-light);border:1px solid var(--danger);border-radius:8px;font-size:13px;font-weight:600;color:var(--danger);"></div>
-      <div style="display:flex;align-items:center;gap:8px;">
-        <div class="amount-wrap" style="flex:1;">
-          <span class="yen-sym">¥</span>
-          <input type="number" id="budget-input" placeholder="0" min="0" step="1000" inputmode="numeric"
-            style="font-size:20px;font-weight:700;text-align:right;flex:1;border:none;outline:none;background:transparent;padding:10px 12px 10px 0;color:var(--text);">
-        </div>
-        <button onclick="saveBudget()" style="padding:10px 18px;background:var(--accent);color:#0d1a18;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;">設定</button>
-      </div>
-      <div id="budget-progress-wrap" style="margin-top:12px;display:none;">
-        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:6px;">
-          <span id="budget-used-label">使用額</span>
-          <span id="budget-remain-label">残り</span>
-        </div>
-        <div style="height:10px;background:var(--surface2);border-radius:999px;overflow:hidden;">
-          <div id="budget-bar" style="height:100%;border-radius:999px;background:var(--accent);width:0%;transition:width 0.4s;"></div>
-        </div>
-        <div style="text-align:right;font-size:11px;color:var(--text3);margin-top:4px;" id="budget-pct"></div>
-      </div>
+      <div class="card-title">月間予算管理（今月）</div>
+      <div id="budget-list"></div>
     </div>
 
     <!-- 月別グラフ -->
     <div class="card">
       <div class="card-title" id="monthly-title">月別支出（直近3ヶ月）</div>
-      <div id="monthly-chart" style="padding:8px 0;"></div>
+      <!-- 決済方法フィルター -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;" id="monthly-pay-filter"></div>
+      <div id="monthly-chart" style="padding:4px 0;"></div>
     </div>
 
-    <!-- カテゴリー別集計 -->
+    <!-- カテゴリー別円グラフ -->
     <div class="card">
       <div class="card-title" id="category-title">カテゴリー別集計（今月）</div>
-      <div id="category-chart" style="padding:8px 0;"></div>
+      <!-- 決済方法フィルター -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;" id="category-pay-filter"></div>
+      <div id="category-chart" style="padding:4px 0;"></div>
     </div>
 
   </div>
@@ -1017,188 +995,206 @@ const CHART_COLORS = [
   '#5eead4','#818cf8','#fbbf24','#fb7185','#34d399',
   '#60a5fa','#f472b6','#a78bfa','#6ee7b7','#fca5a5'
 ];
-let analysisPay = 'all'; // 選択中の決済方法
+let budgetCache   = {};
+let monthlyPay    = 'all';
+let categoryPay   = 'all';
 
 function getMonthLabel(offset) {
   const d = new Date();
   d.setMonth(d.getMonth() + offset);
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
 }
-
 function fmtYenShort(n) {
   if (n >= 10000) return '¥' + (n/10000).toFixed(1) + '万';
   return '¥' + n.toLocaleString('ja-JP');
 }
-
-function getFilteredExpenses() {
-  if (analysisPay === 'all') return expenses;
-  return expenses.filter(e => e.payment === analysisPay);
+function polarToXY(cx, cy, r, angleDeg) {
+  const rad = (angleDeg * Math.PI) / 180;
+  return { x: +(cx + r * Math.cos(rad)).toFixed(2), y: +(cy + r * Math.sin(rad)).toFixed(2) };
 }
 
-function getPayLabel() {
-  return analysisPay === 'all' ? 'すべて' : analysisPay;
-}
-
-function setAnalysisPay(pay) {
-  analysisPay = pay;
-  // フィルターボタンのアクティブ状態更新
-  document.querySelectorAll('#analysis-pay-filter button').forEach(btn => {
-    btn.classList.remove('active-pay');
-  });
-  const activeId = pay === 'all' ? 'apf-all' : 'apf-' + pay;
-  const activeBtn = document.getElementById(activeId);
-  if (activeBtn) activeBtn.classList.add('active-pay');
-  // 予算入力を切り替え
-  const budgetKey = pay === 'all' ? 'all' : pay;
-  const savedBudget = budgetCache[budgetKey] || 0;
-  const input = document.getElementById('budget-input');
-  if (input) input.value = savedBudget > 0 ? savedBudget : '';
-  // 全グラフ再描画
-  renderAnalysis();
-}
-
-function renderAnalysisPayFilter() {
-  const container = document.getElementById('analysis-pay-filter');
-  if (!container) return;
-  const allBtn = `<button class="choice-btn ${analysisPay==='all'?'active-pay':''}" id="apf-all" onclick="setAnalysisPay('all')" style="flex:none;padding:7px 14px;font-size:13px;">すべて</button>`;
-  const payBtns = pays.map(p =>
-    `<button class="choice-btn ${analysisPay===p?'active-pay':''}" id="apf-${p}" onclick="setAnalysisPay('${p}')" style="flex:none;padding:7px 14px;font-size:13px;">${p}</button>`
-  ).join('');
-  container.innerHTML = allBtn + payBtns;
-}
-
-function renderAnalysis() {
-  renderAnalysisPayFilter();
-  renderBudget();
-  renderMonthlyChart();
-  renderCategoryChart();
-  // タイトル更新
-  const payLabel = getPayLabel();
-  const suffix = analysisPay === 'all' ? '' : '（' + payLabel + '）';
-  const bt = document.getElementById('budget-title');
-  const mt = document.getElementById('monthly-title');
-  const ct = document.getElementById('category-title');
-  if (bt) bt.textContent = '月間予算' + suffix;
-  if (mt) mt.textContent = '月別支出（直近3ヶ月）' + suffix;
-  if (ct) ct.textContent = 'カテゴリー別集計（今月）' + suffix;
-}
-
-// 予算データ（メモリキャッシュ）
-let budgetCache = {};
-
+// 予算ロード
 async function loadBudgets() {
-  // まずlocalStorageから即時復元
   const saved = localStorage.getItem('budgets');
-  if (saved) {
-    try { budgetCache = JSON.parse(saved); } catch(e) {}
-  }
-  // GASから最新取得
+  if (saved) { try { budgetCache = JSON.parse(saved); } catch(e) {} }
   try {
     const data = await gasGet('getBudgets', {});
     if (data && typeof data === 'object') {
       budgetCache = data;
       localStorage.setItem('budgets', JSON.stringify(budgetCache));
     }
-  } catch(e) {
-    console.warn('予算取得失敗:', e);
-  }
-  renderBudget();
+  } catch(e) { console.warn('予算取得失敗:', e); }
+  renderBudgetList();
 }
 
-// 予算
-function saveBudget() {
-  const val = parseInt(document.getElementById('budget-input').value || '0');
-  if (!val || val <= 0) return showToast('予算を入力してください','error');
-  const key = analysisPay === 'all' ? 'all' : analysisPay;
-  budgetCache[key] = val;
+// 予算保存
+function saveBudgetForPay(pay) {
+  const inputId = 'budget-input-' + pay;
+  const input   = document.getElementById(inputId);
+  if (!input) return;
+  const val = parseInt(input.value || '0');
+  if (val > 0) {
+    budgetCache[pay] = val;
+  } else {
+    delete budgetCache[pay];
+  }
   localStorage.setItem('budgets', JSON.stringify(budgetCache));
-  // GASに保存
-  try {
-    gasGet = gasGet; // no-op
-    fetch(GAS_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'saveBudgets', budgets: budgetCache })
-    });
-  } catch(e) {}
-  showToast('✅ ' + getPayLabel() + 'の予算を設定しました');
-  renderBudget();
+  fetch(GAS_URL, {
+    method: 'POST', mode: 'no-cors',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ action: 'saveBudgets', budgets: budgetCache })
+  });
+  showToast('✅ ' + pay + 'の予算を設定しました');
+  renderBudgetList();
 }
 
-function renderBudget() {
-  const key    = analysisPay === 'all' ? 'all' : analysisPay;
-  const budget = budgetCache[key] || 0;
-  const input  = document.getElementById('budget-input');
-  if (input) input.value = budget > 0 ? budget : '';
+// 予算一覧レンダリング（決済方法別縦並び）
+function renderBudgetList() {
+  const el = document.getElementById('budget-list');
+  if (!el) return;
+  const ym   = todayStr().slice(0,7);
 
-  const ym    = todayStr().slice(0,7);
-  const total = getFilteredExpenses().filter(e=>e.date.startsWith(ym)).reduce((a,e)=>a+e.amount,0);
-  const wrap  = document.getElementById('budget-progress-wrap');
-  const alertEl = document.getElementById('budget-alert');
+  // 決済方法ごとの使用額・予算
+  const payTotals = {};
+  pays.forEach(p => {
+    payTotals[p] = expenses.filter(e=>e.date.startsWith(ym)&&e.payment===p).reduce((a,e)=>a+e.amount,0);
+  });
 
-  if (!budget || budget <= 0) {
-    if (wrap)    wrap.style.display    = 'none';
-    if (alertEl) alertEl.style.display = 'none';
-    return;
+  // すべて合計（各決済方法の予算合計・使用額合計）
+  const allTotal      = expenses.filter(e=>e.date.startsWith(ym)).reduce((a,e)=>a+e.amount,0);
+  const allBudgetSum  = pays.reduce((a,p)=>a+(budgetCache[p]||0),0);
+
+  // 「すべて合計」行（設定なし・自動計算のみ）
+  function buildSummaryRow(total, budget) {
+    const pct      = budget > 0 ? Math.min(Math.round(total/budget*100),100) : 0;
+    const over     = budget > 0 && total > budget;
+    const warn     = budget > 0 && pct >= 80 && !over;
+    const barColor = over ? 'var(--danger)' : warn ? 'var(--amber)' : 'var(--accent)';
+    const badge    = over
+      ? `<span style="font-size:10px;font-weight:700;color:var(--danger);background:var(--danger-light);padding:2px 6px;border-radius:4px;margin-left:6px;">超過</span>`
+      : warn
+      ? `<span style="font-size:10px;font-weight:700;color:var(--amber);background:var(--amber-light);padding:2px 6px;border-radius:4px;margin-left:6px;">${pct}%</span>`
+      : '';
+    const budgetDisp = budget > 0
+      ? `<span style="font-size:12px;color:var(--text2);">/ ${fmtYen(budget)}</span>`
+      : `<span style="font-size:11px;color:var(--text3);">（予算合計未設定）</span>`;
+    const bar = budget > 0 ? `
+      <div style="height:6px;background:var(--surface2);border-radius:999px;overflow:hidden;margin-top:5px;">
+        <div style="height:100%;width:${pct}%;background:${barColor};border-radius:999px;transition:width 0.4s;"></div>
+      </div>` : '';
+    return `
+      <div style="padding:12px 0;border-bottom:2px solid var(--border2);margin-bottom:4px;">
+        <div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:4px;">すべて合計</div>
+        <div style="font-size:15px;font-weight:700;display:flex;align-items:center;gap:4px;">
+          ${fmtYen(total)} ${budgetDisp} ${badge}
+        </div>
+        ${bar}
+      </div>`;
   }
-  if (wrap) wrap.style.display = 'block';
 
-  const pct   = Math.min(Math.round(total / budget * 100), 100);
-  const over  = total > budget;
-  const color = pct >= 90 ? 'var(--danger)' : pct >= 70 ? 'var(--amber)' : 'var(--accent)';
-
-  const bar = document.getElementById('budget-bar');
-  if (bar) { bar.style.width = pct+'%'; bar.style.background = color; }
-
-  const usedLbl = document.getElementById('budget-used-label');
-  const remLbl  = document.getElementById('budget-remain-label');
-  const pctLbl  = document.getElementById('budget-pct');
-  if (usedLbl) usedLbl.textContent = '使用 ' + fmtYen(total);
-  if (remLbl)  remLbl.textContent  = over ? '超過 '+fmtYen(total-budget) : '残り '+fmtYen(budget-total);
-  if (pctLbl)  pctLbl.textContent  = pct + '%';
-
-  if (alertEl) {
-    if (over) {
-      alertEl.style.display    = 'block';
-      alertEl.style.background = 'var(--danger-light)';
-      alertEl.style.borderColor= 'var(--danger)';
-      alertEl.style.color      = 'var(--danger)';
-      alertEl.textContent      = '⚠️ 今月の予算を ' + fmtYen(total-budget) + ' 超過しています！';
-    } else if (pct >= 80) {
-      alertEl.style.display    = 'block';
-      alertEl.style.background = 'var(--amber-light)';
-      alertEl.style.borderColor= 'var(--amber)';
-      alertEl.style.color      = 'var(--amber)';
-      alertEl.textContent      = '⚠️ 今月の予算の ' + pct + '% を使用しています。';
-    } else {
-      alertEl.style.display = 'none';
-    }
+  // 各決済方法行（設定あり）
+  function buildPayRow(pay, total, budget) {
+    const pct      = budget > 0 ? Math.min(Math.round(total/budget*100),100) : 0;
+    const over     = budget > 0 && total > budget;
+    const warn     = budget > 0 && pct >= 80 && !over;
+    const barColor = over ? 'var(--danger)' : warn ? 'var(--amber)' : 'var(--accent)';
+    const badge    = over
+      ? `<span style="font-size:10px;font-weight:700;color:var(--danger);background:var(--danger-light);padding:2px 6px;border-radius:4px;margin-left:4px;">超過</span>`
+      : warn
+      ? `<span style="font-size:10px;font-weight:700;color:var(--amber);background:var(--amber-light);padding:2px 6px;border-radius:4px;margin-left:4px;">${pct}%</span>`
+      : '';
+    const budgetDisp = budget > 0
+      ? `<span style="font-size:12px;color:var(--text2);">/ ${fmtYen(budget)}</span>`
+      : `<span style="font-size:11px;color:var(--text3);">予算未設定</span>`;
+    const bar = budget > 0 ? `
+      <div style="height:5px;background:var(--surface2);border-radius:999px;overflow:hidden;margin-top:5px;">
+        <div style="height:100%;width:${pct}%;background:${barColor};border-radius:999px;transition:width 0.4s;"></div>
+      </div>` : '';
+    return `
+      <div style="padding:10px 0;border-bottom:1px solid var(--border);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:14px;font-weight:700;display:flex;align-items:center;">
+              ${pay}${badge}
+            </div>
+            <div style="font-size:13px;margin-top:2px;">
+              <span style="font-weight:700;">${fmtYen(total)}</span>
+              ${budgetDisp}
+            </div>
+            ${bar}
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;flex-shrink:0;">
+            <input type="number" id="budget-input-${pay}" value="${budget>0?budget:''}"
+              placeholder="予算" min="0" step="1000" inputmode="numeric"
+              style="width:88px;padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:13px;color:var(--text);text-align:right;font-family:inherit;outline:none;">
+            <button onclick="saveBudgetForPay('${pay}')"
+              style="padding:6px 10px;background:var(--accent);color:#0d1a18;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;">設定</button>
+          </div>
+        </div>
+      </div>`;
   }
+
+  let html = buildSummaryRow(allTotal, allBudgetSum);
+  pays.forEach(p => { html += buildPayRow(p, payTotals[p]||0, budgetCache[p]||0); });
+  el.innerHTML = html;
+}
+
+// フィルターボタン生成
+function buildPayFilterBtns(containerId, currentPay, onClickFn) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const allPays = ['all', ...pays];
+  el.innerHTML = allPays.map(p => {
+    const label  = p === 'all' ? 'すべて' : p;
+    const active = p === currentPay ? 'active-pay' : '';
+    return `<button class="choice-btn ${active}" onclick="${onClickFn}('${p}')" style="flex:none;padding:5px 12px;font-size:12px;">${label}</button>`;
+  }).join('');
+}
+
+function setMonthlyPay(pay) {
+  monthlyPay = pay;
+  buildPayFilterBtns('monthly-pay-filter', monthlyPay, 'setMonthlyPay');
+  renderMonthlyChart();
+}
+function setCategoryPay(pay) {
+  categoryPay = pay;
+  const label = pay === 'all' ? 'すべて' : pay;
+  const ct = document.getElementById('category-title');
+  if (ct) ct.textContent = 'カテゴリー別集計（今月）' + (pay==='all'?'':'（'+label+'）');
+  buildPayFilterBtns('category-pay-filter', categoryPay, 'setCategoryPay');
+  renderCategoryChart();
+}
+
+function renderAnalysis() {
+  renderBudgetList();
+  buildPayFilterBtns('monthly-pay-filter', monthlyPay, 'setMonthlyPay');
+  buildPayFilterBtns('category-pay-filter', categoryPay, 'setCategoryPay');
+  renderMonthlyChart();
+  renderCategoryChart();
 }
 
 // 月別グラフ
 function renderMonthlyChart() {
   const el = document.getElementById('monthly-chart');
   if (!el) return;
-
   const months = [getMonthLabel(-2), getMonthLabel(-1), getMonthLabel(0)];
   const labels = months.map(m => m.slice(5)+'月');
-  const data   = getFilteredExpenses();
+  const data   = monthlyPay === 'all' ? expenses : expenses.filter(e=>e.payment===monthlyPay);
   const totals = months.map(m => data.filter(e=>e.date.startsWith(m)).reduce((a,e)=>a+e.amount,0));
   const maxVal = Math.max(...totals, 1);
-
-  el.innerHTML = months.map((m, i) => {
-    const pct   = Math.round(totals[i] / maxVal * 100);
-    const isNow = i === 2;
-    const color = isNow ? 'var(--accent)' : 'var(--surface3)';
-    const textColor = isNow ? '#0d1a18' : 'var(--text2)';
+  const mt = document.getElementById('monthly-title');
+  if (mt) mt.textContent = '月別支出（直近3ヶ月）' + (monthlyPay==='all'?'':'（'+monthlyPay+'）');
+  el.innerHTML = months.map((m,i) => {
+    const pct      = Math.round(totals[i]/maxVal*100);
+    const isNow    = i===2;
+    const color    = isNow ? 'var(--accent)' : 'var(--surface3)';
+    const txtColor = isNow ? '#0d1a18' : 'var(--text2)';
     return `
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
         <div style="width:36px;font-size:12px;color:var(--text2);text-align:right;flex-shrink:0;">${labels[i]}</div>
         <div style="flex:1;height:32px;background:var(--surface2);border-radius:6px;overflow:hidden;">
-          <div style="height:100%;width:${pct}%;background:${color};border-radius:6px;transition:width 0.5s;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;box-sizing:border-box;min-width:${totals[i]>0?'50px':'0'};">
-            ${totals[i]>0?`<span style="font-size:12px;font-weight:700;color:${textColor};white-space:nowrap;">${fmtYenShort(totals[i])}</span>`:''}
+          <div style="height:100%;width:${pct}%;background:${color};border-radius:6px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;box-sizing:border-box;min-width:${totals[i]>0?'50px':'0'};">
+            ${totals[i]>0?`<span style="font-size:12px;font-weight:700;color:${txtColor};white-space:nowrap;">${fmtYenShort(totals[i])}</span>`:''}
           </div>
         </div>
         ${totals[i]===0?`<span style="font-size:12px;color:var(--text3);">¥0</span>`:''}
@@ -1210,39 +1206,33 @@ function renderMonthlyChart() {
 function renderCategoryChart() {
   const el = document.getElementById('category-chart');
   if (!el) return;
-
   const ym   = todayStr().slice(0,7);
-  const data = getFilteredExpenses().filter(e => e.date.startsWith(ym));
+  const data = (categoryPay==='all' ? expenses : expenses.filter(e=>e.payment===categoryPay))
+               .filter(e=>e.date.startsWith(ym));
   if (!data.length) {
     el.innerHTML = '<div style="text-align:center;padding:1.5rem;color:var(--text3);font-size:13px;">今月のデータがありません</div>';
     return;
   }
-
   const catMap = {};
-  data.forEach(e => { catMap[e.category] = (catMap[e.category]||0) + e.amount; });
+  data.forEach(e => { catMap[e.category]=(catMap[e.category]||0)+e.amount; });
   const total  = Object.values(catMap).reduce((a,v)=>a+v,0);
   const sorted = Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
-
   let startAngle = -90;
-  const cx=80, cy=80, r=70;
-  const slices = sorted.map(([cat, amt], i) => {
+  const cx=80,cy=80,r=70;
+  const slices = sorted.map(([cat,amt],i) => {
     const angle    = (amt/total)*360;
-    const endAngle = startAngle + angle;
-    const start    = polarToXY(cx,cy,r,startAngle);
-    const end      = polarToXY(cx,cy,r,endAngle);
-    const large    = angle > 180 ? 1 : 0;
-    const path     = `M${cx},${cy} L${start.x},${start.y} A${r},${r} 0 ${large},1 ${end.x},${end.y} Z`;
-    const color    = CHART_COLORS[i % CHART_COLORS.length];
+    const endAngle = startAngle+angle;
+    const s        = polarToXY(cx,cy,r,startAngle);
+    const e2       = polarToXY(cx,cy,r,endAngle);
+    const large    = angle>180?1:0;
+    const path     = `M${cx},${cy} L${s.x},${s.y} A${r},${r} 0 ${large},1 ${e2.x},${e2.y} Z`;
+    const color    = CHART_COLORS[i%CHART_COLORS.length];
     startAngle     = endAngle;
-    return { path, color, cat, amt };
+    return {path,color,cat,amt};
   });
-
-  const svgPaths = slices.map(s =>
-    `<path d="${s.path}" fill="${s.color}" stroke="var(--bg)" stroke-width="2"/>`
-  ).join('');
-
-  const legend = sorted.map(([cat, amt], i) => {
-    const color = CHART_COLORS[i % CHART_COLORS.length];
+  const svgPaths = slices.map(s=>`<path d="${s.path}" fill="${s.color}" stroke="var(--bg)" stroke-width="2"/>`).join('');
+  const legend   = sorted.map(([cat,amt],i) => {
+    const color = CHART_COLORS[i%CHART_COLORS.length];
     const pct   = Math.round(amt/total*100);
     return `
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
@@ -1252,7 +1242,6 @@ function renderCategoryChart() {
         <div style="font-size:11px;color:var(--text2);width:32px;text-align:right;">${pct}%</div>
       </div>`;
   }).join('');
-
   el.innerHTML = `
     <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
       <svg width="160" height="160" viewBox="0 0 160 160" style="flex-shrink:0;">
@@ -1263,11 +1252,6 @@ function renderCategoryChart() {
       </svg>
       <div style="flex:1;min-width:160px;">${legend}</div>
     </div>`;
-}
-
-function polarToXY(cx, cy, r, angleDeg) {
-  const rad = (angleDeg * Math.PI) / 180;
-  return { x: +(cx + r * Math.cos(rad)).toFixed(2), y: +(cy + r * Math.sin(rad)).toFixed(2) };
 }
 
 // HTMLのonclick属性から呼べるようにwindowに登録
@@ -1293,8 +1277,9 @@ window.openModal = openModal;
 window.toggleItemSelect = toggleItemSelect;
 window.clearSelection = clearSelection;
 window.retakePhoto = retakePhoto;
-window.saveBudget = saveBudget;
-window.setAnalysisPay = setAnalysisPay;
+window.saveBudgetForPay = saveBudgetForPay;
+window.setMonthlyPay = setMonthlyPay;
+window.setCategoryPay = setCategoryPay;
 window.loadBudgets = loadBudgets;
 window.deleteItem = deleteItem;
 
