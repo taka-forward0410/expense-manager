@@ -681,7 +681,10 @@ async function submitExpense() {
   const isSP = document.body.classList.contains('sp');
   const date   = isSP ? (document.getElementById('pay-date-sp').value || document.getElementById('pay-date').value) : document.getElementById('pay-date').value;
   const amount = isSP ? (document.getElementById('amount-sp').value   || document.getElementById('amount').value)   : document.getElementById('amount').value;
-  const memo   = document.getElementById('memo').value.trim();
+  // PC版はmemo-pc、SP版はmemo（両方確認して値がある方を使う）
+  const memoPcVal = (document.getElementById('memo-pc') || {}).value || '';
+  const memoSpVal = (document.getElementById('memo') || {}).value || '';
+  const memo = (document.body.classList.contains('pc') ? memoPcVal : memoSpVal).trim();
   if (!date)                 return showToast('決済日を入力してください','error');
   if (!amount || +amount<=0) return showToast('金額を入力してください','error');
   if (isSP) {
@@ -731,6 +734,8 @@ function setLoading(on) {
 function resetForm() {
   document.getElementById('amount').value = '';
   document.getElementById('memo').value   = '';
+  const memoPc = document.getElementById('memo-pc');
+  if (memoPc) memoPc.value = '';
   document.getElementById('pay-date').value = todayStr();
   const spD = document.getElementById('pay-date-sp'); if (spD) spD.value = todayStr();
   const spA = document.getElementById('amount-sp');   if (spA) spA.value = '';
