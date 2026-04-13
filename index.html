@@ -1303,8 +1303,9 @@ window.loadBudgets = loadBudgets;
 window.deleteItem = deleteItem;
 
 // 初期化
-const savedView = localStorage.getItem('viewMode') || 'sp';
-  setView(savedView);
+// デバイス自動判定（UA・画面幅でSP/PC切替・localStorage不使用）
+  const _isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768;
+  document.body.classList.add(_isMobile ? 'sp' : 'pc');
   bindSpFields();
   document.getElementById('pay-date').value = todayStr();
   const spDateEl = document.getElementById('pay-date-sp');
