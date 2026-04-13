@@ -597,7 +597,7 @@ function switchTab(name) {
   document.querySelectorAll('.panel').forEach(el => el.classList.remove('active'));
   document.getElementById('panel-'+name).classList.add('active');
   if (name==='list')     loadExpenses();
-  if (name==='analysis') renderAnalysis();
+  if (name==='analysis') { loadBudgets().then(() => renderAnalysis()); }
 }
 
 function renderChoiceGrid(type) {
@@ -1049,8 +1049,8 @@ function setAnalysisPay(pay) {
   const activeBtn = document.getElementById(activeId);
   if (activeBtn) activeBtn.classList.add('active-pay');
   // 予算入力を切り替え
-  const budgetKey = 'budget_' + (pay === 'all' ? 'all' : pay);
-  const savedBudget = parseInt(localStorage.getItem(budgetKey) || '0');
+  const budgetKey = pay === 'all' ? 'all' : pay;
+  const savedBudget = budgetCache[budgetKey] || 0;
   const input = document.getElementById('budget-input');
   if (input) input.value = savedBudget > 0 ? savedBudget : '';
   // 全グラフ再描画
@@ -1083,19 +1083,52 @@ function renderAnalysis() {
   if (ct) ct.textContent = 'カテゴリー別集計（今月）' + suffix;
 }
 
+// 予算データ（メモリキャッシュ）
+let budgetCache = {};
+
+async function loadBudgets() {
+  // まずlocalStorageから即時復元
+  const saved = localStorage.getItem('budgets');
+  if (saved) {
+    try { budgetCache = JSON.parse(saved); } catch(e) {}
+  }
+  // GASから最新取得
+  try {
+    const data = await gasGet('getBudgets', {});
+    if (data && typeof data === 'object') {
+      budgetCache = data;
+      localStorage.setItem('budgets', JSON.stringify(budgetCache));
+    }
+  } catch(e) {
+    console.warn('予算取得失敗:', e);
+  }
+  renderBudget();
+}
+
 // 予算
 function saveBudget() {
   const val = parseInt(document.getElementById('budget-input').value || '0');
   if (!val || val <= 0) return showToast('予算を入力してください','error');
-  const key = 'budget_' + (analysisPay === 'all' ? 'all' : analysisPay);
-  localStorage.setItem(key, val.toString());
+  const key = analysisPay === 'all' ? 'all' : analysisPay;
+  budgetCache[key] = val;
+  localStorage.setItem('budgets', JSON.stringify(budgetCache));
+  // GASに保存
+  try {
+    gasGet = gasGet; // no-op
+    fetch(GAS_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'saveBudgets', budgets: budgetCache })
+    });
+  } catch(e) {}
   showToast('✅ ' + getPayLabel() + 'の予算を設定しました');
   renderBudget();
 }
 
 function renderBudget() {
-  const key    = 'budget_' + (analysisPay === 'all' ? 'all' : analysisPay);
-  const budget = parseInt(localStorage.getItem(key) || '0');
+  const key    = analysisPay === 'all' ? 'all' : analysisPay;
+  const budget = budgetCache[key] || 0;
   const input  = document.getElementById('budget-input');
   if (input) input.value = budget > 0 ? budget : '';
 
@@ -1262,6 +1295,7 @@ window.clearSelection = clearSelection;
 window.retakePhoto = retakePhoto;
 window.saveBudget = saveBudget;
 window.setAnalysisPay = setAnalysisPay;
+window.loadBudgets = loadBudgets;
 window.deleteItem = deleteItem;
 
 // 初期化
@@ -1279,5 +1313,5 @@ const savedView = localStorage.getItem('viewMode') || 'sp';
   renderFilterSelects();
   renderList(expenses);
   loadSettings();
-  renderBudget();
+  loadBudgets();
 </script>
