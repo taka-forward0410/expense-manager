@@ -400,8 +400,8 @@ let cats = JSON.parse(localStorage.getItem('cats') || 'null') || [...FACTORY_CAT
 let pays = JSON.parse(localStorage.getItem('pays') || 'null') || [...FACTORY_PAYS];
 
 function cacheSettings() {
-  localStorage.setItem('cats', JSON.stringify(cats));
-  localStorage.setItem('pays', JSON.stringify(pays));
+  if (cats.length) localStorage.setItem('cats', JSON.stringify(cats));
+  if (pays.length) localStorage.setItem('pays', JSON.stringify(pays));
 }
 
 async function syncSettings() {
@@ -434,10 +434,20 @@ async function gasPostWithResponse(action, payload) {
 }
 
 async function loadSettings() {
+  // ローカルキャッシュが空の場合はデフォルト値を使用
+  if (!cats.length) cats = [...FACTORY_CATS];
+  if (!pays.length) pays = [...FACTORY_PAYS];
+  renderChoiceGrid('cat');
+  renderChoiceGrid('pay');
+  renderManageList('cat');
+  renderManageList('pay');
+  renderFilterSelects();
+
+  // GASから最新設定を取得
   try {
     const data = await gasPostWithResponse('getSettings', {});
-    if (data.cats && data.cats.length) cats = data.cats;
-    if (data.pays && data.pays.length) pays = data.pays;
+    if (data && data.cats && data.cats.length) cats = data.cats;
+    if (data && data.pays && data.pays.length) pays = data.pays;
     cacheSettings();
     renderChoiceGrid('cat');
     renderChoiceGrid('pay');
