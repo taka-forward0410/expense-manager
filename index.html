@@ -93,8 +93,10 @@
   .filter-actions .btn-primary{flex:1;padding:11px;font-size:14px;}
   .filter-actions .btn-secondary{width:auto;padding:11px 16px;font-size:14px;}
   .expense-list{display:flex;flex-direction:column;gap:0;}
-  .expense-item{background:var(--surface);border:none;border-bottom:1px solid var(--border);border-radius:0;padding:0.85rem 1rem;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+  .expense-item{background:var(--surface);border:none;border-bottom:1px solid var(--border);border-radius:0;padding:0.85rem 1rem;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;cursor:pointer;transition:background 0.15s,border-color 0.15s;}
   .expense-item:first-child{border-top:1px solid var(--border);}
+  .expense-item.selected{background:var(--danger-light);border-bottom:2px solid var(--danger);border-top:2px solid var(--danger);}
+  .expense-item.selected + .expense-item{border-top:none;}
   .expense-left{flex:1;min-width:0;}
   .expense-memo{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .expense-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:5px;}
@@ -286,27 +288,19 @@
   <div id="panel-list" class="panel">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 1rem;border-bottom:1px solid var(--border);background:var(--surface);">
       <span style="font-size:12px;color:var(--text2);" id="last-updated">最終更新：－</span>
-      <div style="display:flex;gap:8px;">
-        <button id="delete-mode-btn" onclick="toggleDeleteMode()">🗑️ 削除</button>
-        <button onclick="loadExpenses(true)" id="refresh-btn" style="
-          display:flex;align-items:center;gap:5px;
-          background:var(--surface2);border:1px solid var(--border);
-          border-radius:8px;padding:5px 12px;font-size:13px;font-weight:600;
-          color:var(--accent);cursor:pointer;font-family:inherit;">
-          <span id="refresh-icon">↻</span> 更新
-        </button>
-      </div>
+      <button onclick="loadExpenses(true)" id="refresh-btn" style="
+        display:flex;align-items:center;gap:5px;
+        background:var(--surface2);border:1px solid var(--border);
+        border-radius:8px;padding:5px 12px;font-size:13px;font-weight:600;
+        color:var(--accent);cursor:pointer;font-family:inherit;">
+        <span id="refresh-icon">↻</span> 更新
+      </button>
     </div>
-    <!-- 削除バー -->
+    <!-- 削除バー：常時表示 -->
     <div class="delete-bar" id="delete-bar">
-      <div class="delete-bar-left">
-        <span class="delete-bar-count" id="delete-count">0件選択</span>
-        <button class="delete-bar-btn select-all" onclick="toggleSelectAll()">全選択</button>
-      </div>
-      <div style="display:flex;gap:8px;">
-        <button class="delete-bar-btn cancel" onclick="toggleDeleteMode()">キャンセル</button>
-        <button class="delete-bar-btn danger" onclick="deleteSelected()">削除</button>
-      </div>
+      <button class="dbar-btn select-all" id="select-all-btn" onclick="toggleSelectAll()">全選択</button>
+      <button class="dbar-btn do-delete" id="do-delete-btn" onclick="deleteSelected()" disabled>削除</button>
+      <button class="dbar-btn cancel" onclick="clearSelection()">選択解除</button>
     </div>
     <div class="summary-grid">
       <div class="metric"><div class="metric-label">今月合計</div><div class="metric-value" id="sum-total">¥0</div></div>
@@ -717,66 +711,49 @@ function applyFilter() {
 }
 
 // ============================================================
-// 削除モード
+// 削除機能
 // ============================================================
-let deleteMode = false;
 let selectedIds = new Set();
 
-function toggleDeleteMode() {
-  deleteMode = !deleteMode;
-  selectedIds.clear();
-  document.getElementById('delete-bar').classList.toggle('show', deleteMode);
-  document.querySelectorAll('.expense-item').forEach(el => {
-    el.classList.toggle('select-mode', deleteMode);
-    el.classList.remove('selected');
-  });
-  document.querySelectorAll('.expense-check').forEach(el => el.classList.remove('checked'));
-  updateDeleteCount();
-}
-
 function toggleItemSelect(id) {
-  if (!deleteMode) return;
-  const item  = document.getElementById('ei-' + id);
-  const check = document.getElementById('ec-' + id);
-  if (!item || !check) return;
+  const item = document.getElementById('ei-' + id);
+  if (!item) return;
   if (selectedIds.has(id)) {
     selectedIds.delete(id);
     item.classList.remove('selected');
-    check.classList.remove('checked');
   } else {
     selectedIds.add(id);
     item.classList.add('selected');
-    check.classList.add('checked');
   }
-  updateDeleteCount();
+  updateDeleteBtn();
 }
 
 function toggleSelectAll() {
   const items = document.querySelectorAll('.expense-item');
   const allSelected = selectedIds.size === items.length;
   selectedIds.clear();
-  items.forEach(el => {
-    el.classList.remove('selected');
-    const check = el.querySelector('.expense-check');
-    if (check) check.classList.remove('checked');
-  });
+  items.forEach(el => el.classList.remove('selected'));
   if (!allSelected) {
     items.forEach(el => {
       const id = el.id.replace('ei-', '');
-      selectedIds.add(id);
-      el.classList.add('selected');
-      const check = el.querySelector('.expense-check');
-      if (check) check.classList.add('checked');
+      if (id) { selectedIds.add(id); el.classList.add('selected'); }
     });
   }
-  updateDeleteCount();
+  updateDeleteBtn();
 }
 
-function updateDeleteCount() {
-  const el = document.getElementById('delete-count');
-  if (el) el.textContent = selectedIds.size + '件選択';
-  const btn = document.querySelector('.delete-bar-btn.danger');
-  if (btn) btn.disabled = selectedIds.size === 0;
+function clearSelection() {
+  selectedIds.clear();
+  document.querySelectorAll('.expense-item').forEach(el => el.classList.remove('selected'));
+  updateDeleteBtn();
+}
+
+function updateDeleteBtn() {
+  const btn       = document.getElementById('do-delete-btn');
+  const selectBtn = document.getElementById('select-all-btn');
+  const total     = document.querySelectorAll('.expense-item').length;
+  if (btn)       btn.disabled = selectedIds.size === 0;
+  if (selectBtn) selectBtn.textContent = selectedIds.size === total && total > 0 ? '全解除' : '全選択';
 }
 
 async function deleteSelected() {
@@ -784,32 +761,25 @@ async function deleteSelected() {
   if (!confirm(selectedIds.size + '件を削除しますか？\nレシート画像も削除されます。')) return;
 
   const ids = Array.from(selectedIds);
+  const btn = document.getElementById('do-delete-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '削除中...'; }
 
-  // ローカルから削除してキャッシュクリア
   expenses = expenses.filter(e => {
     const eid = (e.createdAt||'')+'_'+(e.amount||0);
     return !ids.includes(eid);
   });
   clearCache();
 
-  // GASに削除リクエスト
   try {
-    fetch(GAS_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'deleteExpenses', ids })
-    });
+    await gasPostWithResponse('deleteExpenses', { ids });
     showToast('🗑️ ' + ids.length + '件を削除しました');
   } catch(e) {
     showToast('⚠️ 削除に失敗しました', 'error');
   }
 
-  // 削除モードを解除して再描画
-  deleteMode = false;
   selectedIds.clear();
-  document.getElementById('delete-bar').classList.remove('show');
   renderList(expenses);
+  if (btn) { btn.textContent = '削除'; }
 }
 
 function clearFilter() {
@@ -877,7 +847,6 @@ function renderList(list) {
       :(e.receiptUrl?`<img src="${e.receiptUrl}" class="receipt-thumb" onclick="openModal('${e.receiptUrl}')" alt="レシート">`:`<div class="receipt-icon">🧾</div>`);
     const eid = (e.createdAt||'')+'_'+(e.amount||0);
     return `<div class="expense-item" id="ei-${eid}" onclick="toggleItemSelect('${eid}')">
-      <div class="expense-check" id="ec-${eid}"></div>
       <div class="expense-left">
         <div class="expense-memo">${e.memo||'（メモなし）'}</div>
         <div class="expense-tags"><span class="tag tag-cat">${e.category}</span><span class="tag ${payClass}">${e.payment}</span></div>
