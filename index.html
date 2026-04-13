@@ -576,7 +576,12 @@ function switchTab(name) {
   document.querySelectorAll('.panel').forEach(el => el.classList.remove('active'));
   document.getElementById('panel-'+name).classList.add('active');
   if (name==='list')     loadExpenses();
-  if (name==='analysis') { loadBudgets().then(() => renderAnalysis()); }
+  if (name==='analysis') {
+    Promise.all([
+      loadExpenses(false),
+      loadBudgets()
+    ]).then(() => renderAnalysis());
+  }
 }
 
 function renderChoiceGrid(type) {
@@ -1038,16 +1043,20 @@ function polarToXY(cx, cy, r, angleDeg) {
 
 // 予算ロード
 async function loadBudgets() {
+  // まずlocalStorageから即時復元
   const saved = localStorage.getItem('budgets');
   if (saved) { try { budgetCache = JSON.parse(saved); } catch(e) {} }
+  // GASから最新予算を取得（JSONP）
   try {
     const data = await gasGet('getBudgets', {});
-    if (data && typeof data === 'object') {
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      // GASから取得したデータをマージ（空でも上書き）
       budgetCache = data;
       localStorage.setItem('budgets', JSON.stringify(budgetCache));
     }
-  } catch(e) { console.warn('予算取得失敗:', e); }
-  renderBudgetList();
+  } catch(e) {
+    console.warn('予算取得失敗（ローカルキャッシュを使用）:', e);
+  }
 }
 
 // 予算保存
@@ -1062,6 +1071,7 @@ function saveBudgetForPay(pay) {
     delete budgetCache[pay];
   }
   localStorage.setItem('budgets', JSON.stringify(budgetCache));
+  // GASに保存してからスプレッドシートに反映
   fetch(GAS_URL, {
     method: 'POST', mode: 'no-cors',
     headers: { 'Content-Type': 'text/plain' },
@@ -1069,6 +1079,8 @@ function saveBudgetForPay(pay) {
   });
   showToast('✅ ' + pay + 'の予算を設定しました');
   renderBudgetList();
+  // 他の端末との同期のためlocalStorageに保存済みを確実に反映
+  localStorage.setItem('budgets', JSON.stringify(budgetCache));
 }
 
 // 予算一覧レンダリング（決済方法別縦並び）
