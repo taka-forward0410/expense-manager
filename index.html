@@ -283,7 +283,7 @@
       <div class="spinner" id="spinner"></div>
       <span id="submit-label">登録する</span>
     </button>
-    <button class="btn-another" id="another-btn" onclick="registerAnother()">＋ もう1件登録する</button>
+
   </div>
 
   <!-- 履歴・検索 -->
@@ -738,9 +738,7 @@ async function submitExpense() {
     clearCache();
     showToast('✅ 登録完了');
     resetForm();
-    // 「もう1件登録」ボタンを表示
-    const anotherBtn = document.getElementById('another-btn');
-    if (anotherBtn) anotherBtn.classList.add('show');
+
   } catch(err) {
     showToast('❌ エラー: '+err.message,'error');
   }
@@ -961,30 +959,6 @@ function clearData(){
 
 // 初期化（全関数定義後に実行）
 
-function registerAnother() {
-  // フォームをリセットして「もう1件」ボタンを非表示
-  const anotherBtn = document.getElementById('another-btn');
-  if (anotherBtn) anotherBtn.classList.remove('show');
-  // 前回のカテゴリー・決済方法を保持したままリセット
-  const prevCat = selCat;
-  const prevPay = selPay;
-  resetForm();
-  // カテゴリー・決済方法を前回の値に戻す
-  selCat = prevCat;
-  selPay = prevPay;
-  renderChoiceGrid('cat');
-  renderChoiceGrid('pay');
-  // SP版プルダウンも前回の値に戻す
-  const cs = document.getElementById('cat-select');
-  const ps = document.getElementById('pay-select');
-  if (cs) cs.value = prevCat;
-  if (ps) ps.value = prevPay;
-  // 日付を今日にリセット
-  document.getElementById('pay-date').value = todayStr();
-  const spD = document.getElementById('pay-date-sp');
-  if (spD) spD.value = todayStr();
-}
-
 // HTMLのonclick属性から呼べるようにwindowに登録
 window.setView = setView;
 window.switchTab = switchTab;
@@ -1007,7 +981,6 @@ window.cancelEdit = cancelEdit;
 window.openModal = openModal;
 window.toggleItemSelect = toggleItemSelect;
 window.clearSelection = clearSelection;
-window.registerAnother = registerAnother;
 window.retakePhoto = retakePhoto;
 window.deleteItem = deleteItem;
 
